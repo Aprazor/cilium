@@ -248,7 +248,7 @@ kubeadmConfigPatches:
     kind: InitConfiguration
     nodeRegistration:
       kubeletExtraArgs:
-        container-log-max-size: "10M"
+        container-log-max-size: "25M"
 EOF
 
 if [ "${secondary_network_flag}" = true ]; then
