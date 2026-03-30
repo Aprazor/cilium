@@ -79,10 +79,11 @@ func TestEnvoy(t *testing.T) {
 
 	logger := hivetest.Logger(t)
 
-	xdsServer := newXDSServer(logger, nil, testipcache.NewMockIPCache(), localEndpointStore,
+	xdsServer := newXDSServer(logger, nil, testipcache.NewMockIPCache(), nil, localEndpointStore,
 		xdsServerConfig{
 			envoySocketDir:    GetSocketDir(testRunDir),
 			proxyGID:          1337,
+			connectTimeout:    2,
 			httpNormalizePath: true,
 			metrics:           xds.NewXDSMetric(),
 		},
@@ -203,10 +204,11 @@ func TestEnvoyNACK(t *testing.T) {
 
 	logger := hivetest.Logger(t)
 
-	xdsServer := newXDSServer(logger, nil, testipcache.NewMockIPCache(), localEndpointStore,
+	xdsServer := newXDSServer(logger, nil, testipcache.NewMockIPCache(), nil, localEndpointStore,
 		xdsServerConfig{
 			envoySocketDir:    GetSocketDir(testRunDir),
 			proxyGID:          1337,
+			connectTimeout:    2,
 			httpNormalizePath: true,
 			metrics:           xds.NewXDSMetric(),
 		}, nil)

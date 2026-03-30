@@ -11,6 +11,7 @@ import (
 
 type ProxyConfig struct {
 	DisableEnvoyVersionCheck            bool
+	EnvoyNodeLocality                   bool
 	ProxyPrometheusPort                 int
 	ProxyAdminPort                      int
 	EnvoyLog                            string
@@ -44,6 +45,7 @@ type ProxyConfig struct {
 
 func (r ProxyConfig) Flags(flags *pflag.FlagSet) {
 	flags.Bool("disable-envoy-version-check", false, "Do not perform Envoy version check")
+	flags.Bool("envoy-node-locality", false, "Enable Envoy node-locality support for zone-aware routing")
 	flags.Int("proxy-prometheus-port", 0, "Port to serve Envoy metrics on. Default 0 (disabled).")
 	flags.Int("proxy-admin-port", 0, "Port to serve Envoy admin interface on.")
 	flags.Uint("envoy-access-log-buffer-size", 4096, "Envoy access log buffer size in bytes")

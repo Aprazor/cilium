@@ -42,6 +42,7 @@ import (
 	"github.com/cilium/cilium/pkg/lock"
 	"github.com/cilium/cilium/pkg/logging/logfields"
 	"github.com/cilium/cilium/pkg/maps/ipcache"
+	"github.com/cilium/cilium/pkg/node"
 	"github.com/cilium/cilium/pkg/option"
 	"github.com/cilium/cilium/pkg/policy"
 	"github.com/cilium/cilium/pkg/promise"
@@ -195,6 +196,8 @@ type xdsServer struct {
 
 	restorerPromise promise.Promise[endpointstate.Restorer]
 
+	localNodeStore *node.LocalNodeStore
+
 	localEndpointStore *LocalEndpointStore
 
 	l7RulesTranslator envoypolicy.EnvoyL7RulesTranslator
@@ -243,6 +246,7 @@ func toAny(pb proto.Message) *anypb.Any {
 type xdsServerConfig struct {
 	envoySocketDir                string
 	proxyGID                      int
+	connectTimeout                int64
 	httpRequestTimeout            int
 	httpIdleTimeout               int
 	httpMaxGRPCTimeout            int
@@ -257,16 +261,18 @@ type xdsServerConfig struct {
 	policyRestoreTimeout          time.Duration
 	metrics                       xds.Metrics
 	httpLingerConfig              int
+	nodeLocalityEnabled           bool
 }
 
 // newXDSServer creates a new xDS GRPC server.
-func newXDSServer(logger *slog.Logger, restorerPromise promise.Promise[endpointstate.Restorer], ipCache IPCacheEventSource, localEndpointStore *LocalEndpointStore, config xdsServerConfig, secretManager certificatemanager.SecretManager) *xdsServer {
+func newXDSServer(logger *slog.Logger, restorerPromise promise.Promise[endpointstate.Restorer], ipCache IPCacheEventSource, localNodeStore *node.LocalNodeStore, localEndpointStore *LocalEndpointStore, config xdsServerConfig, secretManager certificatemanager.SecretManager) *xdsServer {
 	xdsServer := &xdsServer{
 		logger:             logger,
 		restorerPromise:    restorerPromise,
 		listenerCount:      make(map[string]uint),
 		npdsListeners:      make(npdsListenersTracker),
 		ipCache:            ipCache,
+		localNodeStore:     localNodeStore,
 		localEndpointStore: localEndpointStore,
 
 		socketPath:    getXDSSocketPath(config.envoySocketDir),
@@ -281,7 +287,30 @@ func newXDSServer(logger *slog.Logger, restorerPromise promise.Promise[endpoints
 }
 
 func (s *xdsServer) start(ctx context.Context) error {
+	if err := s.upsertLocalityResources(ctx); err != nil {
+		return err
+	}
 	return s.startXDSGRPCServer(ctx, s.resourceConfig)
+}
+
+func (s *xdsServer) upsertLocalityResources(ctx context.Context) error {
+	if !s.config.nodeLocalityEnabled {
+		return nil
+	}
+
+	zone, err := getLocalNodeZone(ctx, s.localNodeStore)
+	if err != nil {
+		return err
+	}
+
+	return s.UpsertEnvoyResources(ctx, Resources{
+		Clusters: []*envoy_config_cluster.Cluster{
+			newLocalityCluster(s.config.connectTimeout),
+		},
+		Endpoints: []*envoy_config_endpoint.ClusterLoadAssignment{
+			newLocalityClusterLoadAssignment(zone),
+		},
+	})
 }
 
 func (s *xdsServer) initializeXdsConfigs() {

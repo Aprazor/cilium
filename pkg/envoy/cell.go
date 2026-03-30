@@ -25,6 +25,7 @@ import (
 	"github.com/cilium/cilium/pkg/k8s/utils"
 	"github.com/cilium/cilium/pkg/logging/logfields"
 	"github.com/cilium/cilium/pkg/metrics"
+	"github.com/cilium/cilium/pkg/node"
 	"github.com/cilium/cilium/pkg/option"
 	"github.com/cilium/cilium/pkg/promise"
 	"github.com/cilium/cilium/pkg/proxy/accesslog"
@@ -61,6 +62,7 @@ type xdsServerParams struct {
 	Logger             *slog.Logger
 	IPCache            *ipcache.IPCache
 	RestorerPromise    promise.Promise[endpointstate.Restorer]
+	LocalNodeStore     *node.LocalNodeStore
 	LocalEndpointStore *LocalEndpointStore
 
 	EnvoyProxyConfig config.ProxyConfig
@@ -87,10 +89,12 @@ func newEnvoyXDSServer(params xdsServerParams) (XDSServer, error) {
 		params.Logger,
 		params.RestorerPromise,
 		params.IPCache,
+		params.LocalNodeStore,
 		params.LocalEndpointStore,
 		xdsServerConfig{
 			envoySocketDir:                GetSocketDir(option.Config.RunDir),
 			proxyGID:                      int(params.EnvoyProxyConfig.ProxyGID),
+			connectTimeout:                int64(params.EnvoyProxyConfig.ProxyConnectTimeout),
 			httpRequestTimeout:            int(params.EnvoyProxyConfig.HTTPRequestTimeout),
 			httpIdleTimeout:               params.EnvoyProxyConfig.ProxyIdleTimeoutSeconds,
 			httpMaxGRPCTimeout:            int(params.EnvoyProxyConfig.HTTPMaxGRPCTimeout),
@@ -105,6 +109,7 @@ func newEnvoyXDSServer(params xdsServerParams) (XDSServer, error) {
 			policyRestoreTimeout:          params.EnvoyProxyConfig.EnvoyPolicyRestoreTimeout,
 			metrics:                       params.Metrics,
 			httpLingerConfig:              params.EnvoyProxyConfig.EnvoyHTTPUpstreamLingerTimeout,
+			nodeLocalityEnabled:           params.EnvoyProxyConfig.EnvoyNodeLocality,
 		},
 		params.SecretManager)
 
