@@ -1,5 +1,6 @@
-// SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
-/* Copyright Authors of Cilium */
+/* SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+ * Copyright Authors of Cilium
+ */
 
 #include <bpf/ctx/skb.h>
 #include "common.h"
@@ -8,7 +9,14 @@
 #define ENABLE_IPV4
 #define ENABLE_NODEPORT
 
-#include "lib/bpf_host.h"
+#ifdef NORTH_SOUTH_TEST
+# define CLIENT_IP	v4_ext_one
+# define HOOK		netdev_receive_packet
+
+# include "lib/bpf_host.h"
+#else
+# error "Needs to be included with NORTH_SOUTH_TEST defined"
+#endif
 
 ASSIGN_CONFIG(bool, enable_conntrack_accounting, true)
 ASSIGN_CONFIG(bool, enable_ipv4_fragments, true)
@@ -17,7 +25,6 @@ ASSIGN_CONFIG(bool, enable_ipv4_fragments, true)
 #include "lib/lb.h"
 #include "scapy.h"
 
-#define CLIENT_IP	v4_ext_one
 #define CLIENT_PORT	tcp_src_one
 
 #define FRONTEND_IP	v4_svc_one
@@ -60,8 +67,10 @@ int nodeport_lb4_fragments_1_pktgen(struct __ctx_buff *ctx)
 
 	pktgen__init(&builder, ctx);
 
-	BUF_DECL(LB4_NODEPORT_FRAGMENT1, lb4_nodeport_fragment1);
-	BUILDER_PUSH_BUF(builder, LB4_NODEPORT_FRAGMENT1);
+#ifdef NORTH_SOUTH_TEST
+	BUF_DECL(LB4_NS_NODEPORT_FRAGMENT1, lb4_ns_nodeport_fragment1);
+	BUILDER_PUSH_BUF(builder, LB4_NS_NODEPORT_FRAGMENT1);
+#endif
 
 	pktgen__finish(&builder);
 
@@ -78,7 +87,7 @@ int nodeport_lb4_fragments_1_setup(struct __ctx_buff *ctx)
 	lb_v4_add_backend(FRONTEND_IP, FRONTEND_PORT, BACKEND_COUNT, BACKEND_ID,
 			  BACKEND_IP, BACKEND_PORT, IPPROTO_TCP, 0);
 
-	return netdev_receive_packet(ctx);
+	return HOOK(ctx);
 }
 
 CHECK("tc", "tc_nodeport_lb4_fragments_1")
@@ -93,6 +102,7 @@ int nodeport_lb4_fragments_1_check(struct __ctx_buff *ctx)
 	struct ipv4_frag_id expected_frag_id = EXPECTED_FRAG_ID;
 	struct metrics_key metric_key = EXPECTED_METRIC_KEY;
 	__u64 count = 1;
+	__u64 bytes = 0;
 
 	test_init();
 
@@ -114,16 +124,19 @@ int nodeport_lb4_fragments_1_check(struct __ctx_buff *ctx)
 	assert_metrics_count(metric_key, count);
 
 	/* Ensure packet has been DNAT correctly. */
-	BUF_DECL(LB4_NODEPORT_FRAGMENT1_POST_DNAT, lb4_nodeport_fragment1_post_dnat);
-	ASSERT_CTX_BUF_OFF("tcp4_first_fragment_ok", "Ether", ctx, sizeof(__u32),
-			   LB4_NODEPORT_FRAGMENT1_POST_DNAT,
-			   sizeof(BUF(LB4_NODEPORT_FRAGMENT1_POST_DNAT)));
+#ifdef NORTH_SOUTH_TEST
+	BUF_DECL(LB4_NS_NODEPORT_FRAGMENT1_POST_DNAT, lb4_ns_nodeport_fragment1_post_dnat);
+	ASSERT_CTX_BUF_OFF("lb4_ns_nodeport_fragment1_post_dnat", "Ether", ctx, sizeof(__u32),
+			   LB4_NS_NODEPORT_FRAGMENT1_POST_DNAT,
+			   sizeof(BUF(LB4_NS_NODEPORT_FRAGMENT1_POST_DNAT)));
+	bytes = sizeof(BUF(LB4_NS_NODEPORT_FRAGMENT1_POST_DNAT));
+#endif
 
 	/* Ensure CT entry is updated accordingly (SVC). */
 	ct_entry = map_lookup_elem(get_ct_map4(&expected_ct_tuple), &expected_ct_tuple);
 	assert(ct_entry);
 	assert(ct_entry->packets == count);
-	assert(ct_entry->bytes == sizeof(BUF(LB4_NODEPORT_FRAGMENT1_POST_DNAT)));
+	assert(ct_entry->bytes == bytes);
 
 	test_finish();
 }
@@ -136,8 +149,10 @@ int nodeport_lb4_fragments_2_pktgen(struct __ctx_buff *ctx)
 
 	pktgen__init(&builder, ctx);
 
-	BUF_DECL(LB4_NODEPORT_FRAGMENT2, lb4_nodeport_fragment2);
-	BUILDER_PUSH_BUF(builder, LB4_NODEPORT_FRAGMENT2);
+#ifdef NORTH_SOUTH_TEST
+	BUF_DECL(LB4_NS_NODEPORT_FRAGMENT2, lb4_ns_nodeport_fragment2);
+	BUILDER_PUSH_BUF(builder, LB4_NS_NODEPORT_FRAGMENT2);
+#endif
 
 	pktgen__finish(&builder);
 
@@ -147,7 +162,7 @@ int nodeport_lb4_fragments_2_pktgen(struct __ctx_buff *ctx)
 SETUP("tc", "tc_nodeport_lb4_fragments_2")
 int nodeport_lb4_fragments_2_setup(struct __ctx_buff *ctx)
 {
-	return netdev_receive_packet(ctx);
+	return HOOK(ctx);
 }
 
 CHECK("tc", "tc_nodeport_lb4_fragments_2")
@@ -160,6 +175,7 @@ int nodeport_lb4_fragments_2_check(struct __ctx_buff *ctx)
 	struct ipv4_ct_tuple expected_ct_tuple = EXPECTED_CT_TUPLE;
 	struct metrics_key metric_key = EXPECTED_METRIC_KEY;
 	__u64 count = 2;
+	__u64 bytes = 0;
 
 	test_init();
 
@@ -175,18 +191,21 @@ int nodeport_lb4_fragments_2_check(struct __ctx_buff *ctx)
 	assert_metrics_count(metric_key, count);
 
 	/* Ensure packet has been DNAT correctly. */
-	BUF_DECL(LB4_NODEPORT_FRAGMENT1_POST_DNAT, lb4_nodeport_fragment1_post_dnat);
-	BUF_DECL(LB4_NODEPORT_FRAGMENT2_POST_DNAT, lb4_nodeport_fragment2_post_dnat);
-	ASSERT_CTX_BUF_OFF("tcp4_second_fragment_ok", "Ether", ctx, sizeof(__u32),
-			   LB4_NODEPORT_FRAGMENT2_POST_DNAT,
-			   sizeof(BUF(LB4_NODEPORT_FRAGMENT2_POST_DNAT)));
+#ifdef NORTH_SOUTH_TEST
+	BUF_DECL(LB4_NS_NODEPORT_FRAGMENT1_POST_DNAT, lb4_ns_nodeport_fragment1_post_dnat);
+	BUF_DECL(LB4_NS_NODEPORT_FRAGMENT2_POST_DNAT, lb4_ns_nodeport_fragment2_post_dnat);
+	ASSERT_CTX_BUF_OFF("lb4_ns_nodeport_fragment2_post_dnat", "Ether", ctx, sizeof(__u32),
+			   LB4_NS_NODEPORT_FRAGMENT2_POST_DNAT,
+			   sizeof(BUF(LB4_NS_NODEPORT_FRAGMENT2_POST_DNAT)));
+	bytes = sizeof(BUF(LB4_NS_NODEPORT_FRAGMENT1_POST_DNAT)) +
+		sizeof(BUF(LB4_NS_NODEPORT_FRAGMENT2_POST_DNAT));
+#endif
 
 	/* Ensure CT entry is updated accordingly (SVC). */
 	ct_entry = map_lookup_elem(get_ct_map4(&expected_ct_tuple), &expected_ct_tuple);
 	assert(ct_entry);
 	assert(ct_entry->packets == count);
-	assert(ct_entry->bytes == sizeof(BUF(LB4_NODEPORT_FRAGMENT1_POST_DNAT)) +
-				  sizeof(BUF(LB4_NODEPORT_FRAGMENT2_POST_DNAT)));
+	assert(ct_entry->bytes == bytes);
 
 	test_finish();
 }
