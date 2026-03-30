@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 
+	envoy_config_bootstrap "github.com/envoyproxy/go-control-plane/envoy/config/bootstrap/v3"
 	envoy_config_cluster "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	envoy_config_core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	envoy_config_endpoint "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
@@ -33,6 +34,24 @@ func getLocalNodeZone(ctx context.Context, localNodeStore *node.LocalNodeStore) 
 	}
 
 	return localNode.Labels[corev1.LabelTopologyZone], nil
+}
+
+func appendEmbeddedLocalityBootstrap(bs *envoy_config_bootstrap.Bootstrap, connectTimeout int64, zone string) {
+	if bs.GetNode() == nil {
+		bs.Node = &envoy_config_core.Node{}
+	}
+	if bs.StaticResources == nil {
+		bs.StaticResources = &envoy_config_bootstrap.Bootstrap_StaticResources{}
+	}
+	if zone != "" {
+		bs.Node.Locality = &envoy_config_core.Locality{Zone: zone}
+	}
+
+	if bs.ClusterManager == nil {
+		bs.ClusterManager = &envoy_config_bootstrap.ClusterManager{}
+	}
+	bs.ClusterManager.LocalClusterName = localityClusterName
+	bs.StaticResources.Clusters = append(bs.StaticResources.Clusters, newLocalityCluster(connectTimeout))
 }
 
 // newLocalityCluster defines the internal EDS-backed local cluster Envoy uses for locality-aware routing.

@@ -5,6 +5,7 @@ package envoy
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -34,6 +35,7 @@ import (
 	"github.com/cilium/cilium/pkg/logging"
 	"github.com/cilium/cilium/pkg/logging/logfields"
 	"github.com/cilium/cilium/pkg/metrics"
+	"github.com/cilium/cilium/pkg/node"
 	"github.com/cilium/cilium/pkg/time"
 )
 
@@ -104,6 +106,7 @@ type standaloneEnvoyConfig struct {
 	runDir                         string
 	logPath                        string
 	defaultLogLevel                string
+	nodeLocalityEnabled            bool
 	baseID                         uint64
 	keepCapNetBindService          bool
 	connectTimeout                 int64
@@ -114,6 +117,7 @@ type standaloneEnvoyConfig struct {
 	maxConcurrentRetries           uint32
 	maxConnections                 uint32
 	maxRequests                    uint32
+	localNodeStore                 *node.LocalNodeStore
 }
 
 // startStandaloneEnvoyInternal starts an Envoy proxy instance.
@@ -150,6 +154,8 @@ func (o *onDemandXdsStarter) startStandaloneEnvoyInternal(config standaloneEnvoy
 		maxConcurrentRetries:           config.maxConcurrentRetries,
 		maxConnections:                 config.maxConnections,
 		maxRequests:                    config.maxRequests,
+		nodeLocalityEnabled:            config.nodeLocalityEnabled,
+		localNodeStore:                 config.localNodeStore,
 	})
 
 	o.logger.Debug("Envoy: Starting standalone Envoy")
@@ -373,6 +379,8 @@ type bootstrapConfig struct {
 	maxConcurrentRetries           uint32
 	maxConnections                 uint32
 	maxRequests                    uint32
+	nodeLocalityEnabled            bool
+	localNodeStore                 *node.LocalNodeStore
 }
 
 func (o *onDemandXdsStarter) writeBootstrapConfigFile(config bootstrapConfig) {
@@ -551,6 +559,16 @@ func (o *onDemandXdsStarter) writeBootstrapConfigFile(config bootstrapConfig) {
 				},
 			}},
 		},
+	}
+
+	if config.nodeLocalityEnabled {
+		zone, err := getLocalNodeZone(context.Background(), config.localNodeStore)
+		if err != nil {
+			o.logger.Warn("Envoy: Failed to resolve local node zone for embedded bootstrap",
+				logfields.Error, err,
+			)
+		}
+		appendEmbeddedLocalityBootstrap(bs, config.connectTimeout, zone)
 	}
 
 	o.logger.Debug("Envoy: Writing Bootstrap config",
